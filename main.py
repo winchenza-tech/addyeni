@@ -6,13 +6,15 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 
 # --- 1. AYARLAR ---
-TELEGRAM_TOKEN = "8637130007:AAH4hbucW0I5OOgmWeFvXv4rpVRo0LRS_k"
+# BURAYA @BotFather'DAN ALDIĞIN YENİ TOKEN'I YAPIŞTIR
+TELEGRAM_TOKEN = "8637130007:AAEX9jWl5WOs9iQb7oVkyCik6oIkgTpH8tM" 
+
 ADMIN_IDS = [8416720490, 8382929624, 652932220]
 
-# Hedef ismi bütün olarak buraya yazıyoruz (Küçük harf ve boşluksuz/emojisiz haliyle)
-# "Octopus Game TR" normalize edildiğinde "octopusgametr" olur.
+# Hedef isim: Boşluksuz ve küçük harf hali
 TARGET_PHRASE = "octopusgametr"
 
+# Link yakalayıcı regex
 TELEGRAM_LINK_REGEX = r'(?:https?:\/\/)?(?:t\s*\.\s*me|telegram\s*\.\s*me|telegram\s*\.\s*dog)\s*\/\s*[a-zA-Z0-9_]{5,}'
 
 # --- 2. JSON VERİTABANI ---
@@ -36,7 +38,7 @@ def is_admin(user_id):
 def normalize_text(text):
     """Emojileri siler, harfleri küçültür ve boşlukları atar."""
     if not text: return ""
-    # Sadece harf ve rakamları al (Kategorisi L-Letter veya N-Number olanlar)
+    # Sadece harf ve rakamları tut, boşluk ve emojileri at
     text = "".join(ch for ch in text if unicodedata.category(ch)[0] in 'LN')
     return text.lower().replace('İ', 'i').replace('I', 'ı').strip()
 
@@ -51,17 +53,17 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if is_admin(user.id):
         return
 
-    # A) ID KONTROLÜ
+    # A) ID Kontrolü
     is_blacklisted_id = str(user.id) in BLACKLIST
     
-    # B) TAM İSİM KONTROLÜ
+    # B) Tam İsim Kontrolü (Boşluklar ve emojiler elendikten sonra)
     user_full_name = (user.first_name or "") + (user.last_name or "")
     normalized_name = normalize_text(user_full_name)
     
-    # İsmin içinde "octopusgametr" tam kalıbı geçiyor mu?
+    # "Octopus Game TR" -> "octopusgametr" eşleşmesi
     is_blacklisted_name = TARGET_PHRASE in normalized_name
 
-    # Eğer ID veya TAM İSİM eşleşiyorsa link kontrolüne geç
+    # Şüpheliyse link kontrolü yap
     if is_blacklisted_id or is_blacklisted_name:
         content = (msg.text or msg.caption or "")
         match = re.search(TELEGRAM_LINK_REGEX, content, re.IGNORECASE | re.MULTILINE)
@@ -69,36 +71,31 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if match:
             try:
                 await msg.delete()
-                print(f"✅ REKLAM SİLİNDİ: {user.id} | Sebep: {'ID Listesi' if is_blacklisted_id else 'Tam İsim Eşleşmesi'}")
+                sebep = "ID Listesi" if is_blacklisted_id else f"İsim Filtresi ({normalized_name})"
+                print(f"✅ REKLAM SİLİNDİ: {user.id} | Sebep: {sebep}")
             except Exception as e:
-                print(f"❌ Silme hatası: {e}")
+                print(f"❌ Silme hatası (Yetki?): {e}")
         else:
-            # Sadece takip için
             if is_blacklisted_name:
-                print(f"ℹ️ Şüpheli isim ({normalized_name}) ama mesajda link yok.")
+                print(f"ℹ️ Şüpheli isim ({normalized_name}) tespit edildi ama link yok, silinmedi.")
 
 # --- 5. KOMUTLAR ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id):
-        await update.message.reply_text("🛡 Bot aktif. Hedef: 'Octopus Game TR' tam isim koruması.")
-
-async def engelle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    if context.args:
-        new_id = context.args[0]
-        BLACKLIST[str(new_id)] = "Manuel Engellenen"
-        save_blacklist()
-        await update.message.reply_text(f"✅ {new_id} ID listesine eklendi.")
+        await update.message.reply_text("🛡️ Koruma sistemi aktif. Token yenilendi!")
 
 # --- 6. ÇALIŞTIRICI ---
 def main():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("engelle", engelle_command))
-    app.add_handler(MessageHandler(filters.ChatType.GROUPS & (~filters.COMMAND), delete_octopus_ads))
-    
-    print("🚀 Tam İsim Filtreleme Sistemi Devrede...")
-    app.run_polling()
+    try:
+        app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+        
+        app.add_handler(CommandHandler("start", start_command))
+        app.add_handler(MessageHandler(filters.ChatType.GROUPS & (~filters.COMMAND), delete_octopus_ads))
+        
+        print("🚀 Bot başlatılıyor... İsim koruması devrede.")
+        app.run_polling()
+    except Exception as e:
+        print(f"⚠️ KRİTİK HATA: {e}")
 
 if __name__ == "__main__":
     main()
