@@ -5,17 +5,16 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 
 # --- 1. AYARLAR ---
+# Token ve Admin ID'lerinizi buraya ekleyin
 TELEGRAM_TOKEN = "8637130007:AAH4hbucW0I5OOgmWeFvXv4rpVRo0LRSJ_k"
-
 ADMIN_IDS = [8416720490, 8382929624, 652932220, 7094870780]
 
+# Kelimeleri kök hallerine indirdik (Böylece 'grubumuz', 'grubuna' hepsini yakalar)
 BANNED_KEYWORDS = [
-    "kanalımıza", "kanalına", "kanal", 
-    "grubuna", "grubumuza", 
-    "davetlisiniz", "katılabilirsiniz"
+    "kanal", "grubumuz", "grup", "davet", "katıl", "bekleriz", "katılabilirsiniz"
 ]
 
-# --- 1.5 JSON VERİTABANI (Kara listenin sıfırlanmaması için) ---
+# --- 2. JSON VERİTABANI ---
 BLACKLIST_FILE = "blacklist.json"
 DEFAULT_BLACKLIST = {
     "5177820294": "Octopus Game TR",
@@ -34,91 +33,102 @@ def save_blacklist():
     with open(BLACKLIST_FILE, "w", encoding="utf-8") as f:
         json.dump(BLACKLIST, f, ensure_ascii=False, indent=4)
 
-# Başlangıçta listeyi yükle
 BLACKLIST = load_blacklist()
 
-
-# --- 2. YARDIMCI FONKSİYONLAR ---
+# --- 3. YARDIMCI FONKSİYONLAR ---
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-
-# --- 3. REKLAM ENGELLEME (GRUPLAR İÇİN) ---
+# --- 4. REKLAM ENGELLEME MANTIĞI ---
 async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     user = update.effective_user
     
+    # Özel mesajları veya adminleri atla
     if not msg or not user or update.effective_chat.type == 'private':
         return
-        
     if is_admin(user.id):
         return
 
-    # ID'ler JSON'da string olarak tutulduğu için string'e çevirerek kontrol ediyoruz
+    # ÖNEMLİ: Sadece BLACKLIST içindeki kişileri denetle
+    # Eğer listede olmayanların da reklamını silmek istiyorsan bu 'if'i kaldırabilirsin.
     if str(user.id) not in BLACKLIST:
         return
 
-    text = (msg.text or msg.caption or "")
-    if not text:
-        return
-
-    link_pattern = r'(?:https?:\/\/)?(?:t\s*\.\s*m\s*e|telegram\s*\.\s*m\s*e)\s*\/'
-    has_link = bool(re.search(link_pattern, text, re.IGNORECASE))
+    # Mesaj içeriğini normalize et (Küçük harf, Türkçe karakter düzeltme)
+    text = (msg.text or msg.caption or "").lower().replace('İ', 'i').replace('I', 'ı')
     
-    text_lower = text.lower().replace('İ', 'i').replace('I', 'ı')
-    has_keyword = any(keyword in text_lower for keyword in BANNED_KEYWORDS)
+    # --- LİNK KONTROLÜ (Entity & Regex) ---
+    has_link = False
+    
+    # A) Telegram'ın kendi sisteminden link kontrolü (En garantisi)
+    if msg.entities or msg.caption_entities:
+        entities = msg.entities or msg.caption_entities
+        for ent in entities:
+            if ent.type in ['url', 'text_link']:
+                has_link = True
+                break
+    
+    # B) Regex ile manuel kontrol (Garantilemek için)
+    if not has_link:
+        # t.me, telegram.me veya http içeren her şeyi yakalar
+        link_pattern = r'(t\s*\.\s*me|telegram\s*\.\s*me|http)'
+        if re.search(link_pattern, text):
+            has_link = True
 
+    # --- KELİME KONTROLÜ ---
+    has_keyword = any(keyword in text for keyword in BANNED_KEYWORDS)
+
+    # EĞER LİNK VEYA YASAKLI KELİME VARSA SİL
     if has_link or has_keyword:
         try:
             await msg.delete()
-            print(f"Reklam Silindi: {user.id} - İçerik: {text[:30]}...")
+            print(f"🚨 REKLAM SİLİNDİ: {user.first_name} ({user.id})")
         except Exception as e:
-            print(f"Silme Hatası (Reklam): {e}")
+            print(f"❌ SİLME HATASI (Yetki Eksik Olabilir): {e}")
 
-
-# --- 4. ADMİN YÖNETİM SİSTEMİ (ÖZEL MESAJLAR İÇİN) ---
+# --- 5. ADMİN KOMUTLARI ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ Bu bot üzerinde herhangi bir yetkin bulunmuyor. Erişim reddedildi.")
+        await update.message.reply_text("⛔ Erişim reddedildi.")
         return
-    await update.message.reply_text("🛡 Hoş geldin admin. Komutlar için `/komutlar` yazabilirsin.")
+    await update.message.reply_text("🛡 Bot aktif. Komutlar için `/komutlar` yazın.")
 
 async def komutlar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     rehber = (
         "🛡 **KOMUT REHBERİ**\n\n"
-        "🔹 `/engelle ID` : Botu veya kullanıcıyı kara listeye ekler.\n"
+        "🔹 `/engelle ID` : Kullanıcıyı kara listeye ekler.\n"
         "🔹 `/liste` : Kara listeyi gösterir.\n"
-        "🔹 `/izinver SIRA_NO` : Kara listeden çıkarır.\n"
+        "🔹 `/izinver SIRA_NO` : Listeden çıkarır."
     )
     await update.message.reply_text(rehber, parse_mode="Markdown")
 
 async def engelle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    if not context.args: 
-        await update.message.reply_text("Kullanım: `/engelle ID`", parse_mode="Markdown")
+    if not context.args:
+        await update.message.reply_text("Kullanım: `/engelle 12345678`")
         return
-        
+    
+    target_id = context.args[0]
     try:
-        new_id_str = str(int(context.args[0])) # Rakam kontrolü için önce int, sonra JSON için string
-        try:
-            bot_chat = await context.bot.get_chat(int(new_id_str))
-            bot_name = bot_chat.first_name or bot_chat.title or f"Bilinmeyen ({new_id_str})"
-        except:
-            bot_name = f"Bilinmeyen ({new_id_str})"
-            
-        BLACKLIST[new_id_str] = bot_name
-        save_blacklist() # RAM'deki değişikliği dosyaya kalıcı olarak kaydet
-        await update.message.reply_text(f"✅ {bot_name} şüpheli listesine eklendi. Sadece reklam atarsa silinecek.")
-    except ValueError:
-        await update.message.reply_text("❌ Geçersiz ID. Lütfen rakamlardan oluşan bir ID girin.")
+        # ID geçerli mi kontrol et
+        chat = await context.bot.get_chat(int(target_id))
+        name = chat.first_name or chat.title
+        BLACKLIST[str(target_id)] = name
+        save_blacklist()
+        await update.message.reply_text(f"✅ {name} ({target_id}) listeye eklendi.")
+    except Exception:
+        # ID bulunamazsa yine de ekle (Önlem olarak)
+        BLACKLIST[str(target_id)] = "Bilinmeyen Kullanıcı"
+        save_blacklist()
+        await update.message.reply_text(f"✅ {target_id} listeye eklendi (Kullanıcı adı alınamadı).")
 
 async def liste_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     if not BLACKLIST:
-        await update.message.reply_text("Kara liste boş.")
+        await update.message.reply_text("Liste boş.")
         return
-        
     res = "🚫 **KARA LİSTE**\n\n"
     for i, (b_id, name) in enumerate(BLACKLIST.items(), 1):
         res += f"{i}. {name} - `{b_id}`\n"
@@ -126,44 +136,32 @@ async def liste_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def izinver_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
-    if not context.args: 
-        await update.message.reply_text("Kullanım: `/izinver SIRA_NO`", parse_mode="Markdown")
-        return
-        
     try:
         rank = int(context.args[0])
         keys = list(BLACKLIST.keys())
-        if 0 < rank <= len(keys):
-            target_id = keys[rank - 1]
-            name = BLACKLIST.pop(target_id)
-            save_blacklist() # RAM'deki değişikliği dosyaya kalıcı olarak kaydet
-            await update.message.reply_text(f"🔓 {name} kara listeden çıkarıldı.")
-        else:
-            await update.message.reply_text("❌ Geçersiz sıra numarası. Lütfen `/liste` komutuyla numaraları kontrol edin.", parse_mode="Markdown")
-    except ValueError:
-        await update.message.reply_text("❌ Hata. Lütfen listedeki sıra numarasını girin (Örn: `/izinver 1`).", parse_mode="Markdown")
+        target_id = keys[rank - 1]
+        name = BLACKLIST.pop(target_id)
+        save_blacklist()
+        await update.message.reply_text(f"🔓 {name} listeden çıkarıldı.")
+    except:
+        await update.message.reply_text("❌ Geçersiz sıra numarası.")
 
-async def catch_unauthorized_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Çifte mesaj bug'ı giderildi (~filters.COMMAND ile)
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ Yetkiniz bulunmuyor.")
-
-
-# --- 5. ANA ÇALIŞTIRICI ---
+# --- 6. ÇALIŞTIRICI ---
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
+    # Komutlar
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("komutlar", komutlar_command))
     app.add_handler(CommandHandler("engelle", engelle_command))
     app.add_handler(CommandHandler("liste", liste_command))
     app.add_handler(CommandHandler("izinver", izinver_command))
     
-    # ~filters.COMMAND ekleyerek /start gibi komutların iki kez cevap vermesini önledik
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, catch_unauthorized_messages))
-    app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.ALL, delete_octopus_ads))
+    # Mesaj Dinleyiciler
+    # Gruplardaki tüm mesajları kontrol et
+    app.add_handler(MessageHandler(filters.ChatType.GROUPS & (~filters.COMMAND), delete_octopus_ads))
     
-    print("Bot aktif. Emoji ve boşluklu kelimeleri delen güçlü regex devrede.")
+    print("🚀 Bot başarıyla başlatıldı!")
     app.run_polling()
 
 if __name__ == "__main__":
