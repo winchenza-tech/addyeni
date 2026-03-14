@@ -8,7 +8,7 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 
-# --- 1. WEB SUNUCUSU (UYKUYU ENGELLEMEK İÇİN) ---
+# --- 1. WEB SUNUCUSU ---
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -16,14 +16,12 @@ def home():
     return "Bot 7/24 Aktif ve Uyanık!"
 
 def run_flask():
-    # Render gibi platformlar PORT değişkenini otomatik atar
     port = int(os.environ.get("PORT", 8080))
     app_flask.run(host='0.0.0.0', port=port)
 
 def keep_alive():
-    """Botu uyanık tutacak sunucuyu ayrı bir kanalda (thread) başlatır."""
     t = Thread(target=run_flask)
-    t.daemon = True # Ana program kapandığında bu da kapansın
+    t.daemon = True
     t.start()
 
 # --- 2. AYARLAR ---
@@ -34,12 +32,24 @@ TELEGRAM_LINK_REGEX = r'(?:https?:\/\/)?(?:t\s*\.\s*me|telegram\s*\.\s*me|telegr
 
 # --- 3. JSON VERİTABANI ---
 BLACKLIST_FILE = "blacklist.json"
+
 def load_blacklist():
+    # Varsayılan kara liste (Yeni ID buraya eklendi)
+    default_blacklist = {
+        "5177820294": "Octopus Game TR",
+        "7094870780": "Kara Listedeki Kullanıcı" 
+    }
+    
     if os.path.exists(BLACKLIST_FILE):
         with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
-            try: return json.load(f)
-            except: return {"5177820294": "Octopus Game TR"}
-    return {"5177820294": "Octopus Game TR"}
+            try:
+                data = json.load(f)
+                # Dosyadaki veriye varsayılanları da ekleyelim ki garanti olsun
+                data.update(default_blacklist)
+                return data
+            except:
+                return default_blacklist
+    return default_blacklist
 
 BLACKLIST = load_blacklist()
 
@@ -63,6 +73,7 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if is_admin(user.id):
         return
 
+    # ID veya İsim kontrolü
     is_blacklisted_id = str(user.id) in BLACKLIST
     user_full_name = (user.first_name or "") + (user.last_name or "")
     normalized_name = normalize_text(user_full_name)
@@ -75,29 +86,25 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if match:
             try:
                 await msg.delete()
-                print(f"✅ REKLAM SİLİNDİ: {user.id}")
+                sebep = "ID Karalistesi" if is_blacklisted_id else "İsim Filtresi"
+                print(f"✅ REKLAM SİLİNDİ: {user.id} | Sebep: {sebep}")
             except Exception as e:
                 print(f"❌ Silme hatası: {e}")
 
 # --- 6. KOMUTLAR ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id):
-        await update.message.reply_text("🛡️ Koruma sistemi ve Web Sunucusu aktif!")
+        await update.message.reply_text("🛡️ Koruma sistemi, Yeni ID filtresi ve Web Sunucusu aktif!")
 
 # --- 7. ÇALIŞTIRICI ---
 def main():
-    # 1. Adım: Web sunucusunu uyandır
-    print("🌐 Web sunucusu başlatılıyor...")
     keep_alive()
-
-    # 2. Adım: Telegram Botu başlat
     try:
         app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(MessageHandler(filters.ChatType.GROUPS & (~filters.COMMAND), delete_octopus_ads))
         
-        print("🚀 Bot Polling modunda çalışıyor...")
+        print("🚀 Bot uyanık ve 7094870780 ID'sini avlamaya hazır.")
         app.run_polling(drop_pending_updates=True) 
     except Exception as e:
         print(f"⚠️ KRİTİK HATA: {e}")
