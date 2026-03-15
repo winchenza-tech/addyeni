@@ -28,13 +28,17 @@ def keep_alive():
 TELEGRAM_TOKEN = "8637130007:AAEX9jWl5WOs9iQb7oVkyCik6oIkgTpH8tM" 
 ADMIN_IDS = [8416720490, 8382929624, 652932220]
 TARGET_PHRASE = "octopusgametr"
-TELEGRAM_LINK_REGEX = r'(?:https?:\/\/)?(?:t\s*\.\s*me|telegram\s*\.\s*me|telegram\s*\.\s*dog)\s*\/\s*[a-zA-Z0-9_]{5,}'
+
+# Yasaklı Kelimeler Listesi (Sadece blacklisttekiler için aranacak)
+BANNED_WORDS = ["aramıza", "sohbetgo", "katılmak için"]
+
+# Özel davet linklerini (+ ve - barındıran) yakalayabilen Regex
+TELEGRAM_LINK_REGEX = r'(?:https?:\/\/)?(?:t\s*\.\s*me|telegram\s*\.\s*me|telegram\s*\.\s*dog)\s*\/\s*(?:\+)?[\w\-]+'
 
 # --- 3. JSON VERİTABANI ---
 BLACKLIST_FILE = "blacklist.json"
 
 def load_blacklist():
-    # Varsayılan kara liste (Yeni ID buraya eklendi)
     default_blacklist = {
         "5177820294": "Octopus Game TR",
         "7094870780": "Kara Listedeki Kullanıcı" 
@@ -44,7 +48,6 @@ def load_blacklist():
         with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
             try:
                 data = json.load(f)
-                # Dosyadaki veriye varsayılanları da ekleyelim ki garanti olsun
                 data.update(default_blacklist)
                 return data
             except:
@@ -73,28 +76,44 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if is_admin(user.id):
         return
 
-    # ID veya İsim kontrolü
+    # 1. Kullanıcı ID veya İsim olarak karalistedeyse tespit et
     is_blacklisted_id = str(user.id) in BLACKLIST
     user_full_name = (user.first_name or "") + (user.last_name or "")
     normalized_name = normalize_text(user_full_name)
     is_blacklisted_name = TARGET_PHRASE in normalized_name
 
+    # KULLANICI KARALİSTEDEYSE İŞLEME DEVAM ET
     if is_blacklisted_id or is_blacklisted_name:
         content = (msg.text or msg.caption or "")
-        match = re.search(TELEGRAM_LINK_REGEX, content, re.IGNORECASE | re.MULTILINE)
+        content_lower = content.lower()
 
-        if match:
+        # Link var mı?
+        has_link = bool(re.search(TELEGRAM_LINK_REGEX, content, re.IGNORECASE | re.MULTILINE))
+        
+        # Yasaklı kelime var mı?
+        has_banned_word = any(word in content_lower for word in BANNED_WORDS)
+
+        # İkisinden biri varsa mesajı sil
+        if has_link or has_banned_word:
             try:
                 await msg.delete()
-                sebep = "ID Karalistesi" if is_blacklisted_id else "İsim Filtresi"
+                
+                # Konsola detaylı log yazdır
+                kullanici_tipi = "ID Karalistesi" if is_blacklisted_id else "İsim Filtresi"
+                yakalanan_sey = []
+                if has_link: yakalanan_sey.append("Link")
+                if has_banned_word: yakalanan_sey.append("Yasaklı Kelime")
+                
+                sebep = f"{kullanici_tipi} -> {' + '.join(yakalanan_sey)}"
                 print(f"✅ REKLAM SİLİNDİ: {user.id} | Sebep: {sebep}")
+                
             except Exception as e:
                 print(f"❌ Silme hatası: {e}")
 
 # --- 6. KOMUTLAR ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id):
-        await update.message.reply_text("🛡️ Koruma sistemi, Yeni ID filtresi ve Web Sunucusu aktif!")
+        await update.message.reply_text("🛡️ Koruma sistemi, Yeni Regex ve Kelime Filtresi aktif!")
 
 # --- 7. ÇALIŞTIRICI ---
 def main():
@@ -104,7 +123,7 @@ def main():
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(MessageHandler(filters.ChatType.GROUPS & (~filters.COMMAND), delete_octopus_ads))
         
-        print("🚀 Bot uyanık ve 7094870780 ID'sini avlamaya hazır.")
+        print("🚀 Bot uyanık ve karalistedeki reklamcıları avlamaya hazır.")
         app.run_polling(drop_pending_updates=True) 
     except Exception as e:
         print(f"⚠️ KRİTİK HATA: {e}")
