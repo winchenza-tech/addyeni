@@ -1,7 +1,6 @@
 import re
 import os
 import json
-import unicodedata
 import asyncio
 from threading import Thread
 from flask import Flask
@@ -27,21 +26,21 @@ def keep_alive():
 # --- 2. AYARLAR ---
 TELEGRAM_TOKEN = "8637130007:AAEX9jWl5WOs9iQb7oVkyCik6oIkgTpH8tM" 
 ADMIN_IDS = [8416720490, 8382929624, 652932220]
-TARGET_PHRASE = "octopusgametr"
 
 # Yasaklı Kelimeler Listesi (Sadece blacklisttekiler için aranacak)
-BANNED_WORDS = ["aramıza", "sohbetgo", "katılmak için"]
+BANNED_WORDS = ["aramıza", "grubumuza", "grubuna", "sohbet", "ortam"]
 
 # Özel davet linklerini (+ ve - barındıran) yakalayabilen Regex
 TELEGRAM_LINK_REGEX = r'(?:https?:\/\/)?(?:t\s*\.\s*me|telegram\s*\.\s*me|telegram\s*\.\s*dog)\s*\/\s*(?:\+)?[\w\-]+'
 
-# --- 3. JSON VERİTABANI ---
+# --- 3. JSON VERİTABANI (SADECE USERNAME İLE ÇALIŞIYOR) ---
 BLACKLIST_FILE = "blacklist.json"
 
 def load_blacklist():
+    # Sadece küçük harflerle yazılmış kullanıcı adları (username) kullanıyoruz.
     default_blacklist = {
-        "5177820294": "Octopus Game TR",
-        "7094870780": "Kara Listedeki Kullanıcı" 
+        "octopusgame_bot": "Octopus Game TR Reklam Botu",
+        "eskidenyesil": "Deneme Test Hesabı"
     }
     
     if os.path.exists(BLACKLIST_FILE):
@@ -60,11 +59,6 @@ BLACKLIST = load_blacklist()
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-def normalize_text(text):
-    if not text: return ""
-    text = "".join(ch for ch in text if unicodedata.category(ch)[0] in 'LN')
-    return text.lower().replace('İ', 'i').replace('I', 'ı').strip()
-
 # --- 5. ANA DENETLEME ---
 async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
@@ -76,14 +70,13 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if is_admin(user.id):
         return
 
-    # 1. Kullanıcı ID veya İsim olarak karalistedeyse tespit et
-    is_blacklisted_id = str(user.id) in BLACKLIST
-    user_full_name = (user.first_name or "") + (user.last_name or "")
-    normalized_name = normalize_text(user_full_name)
-    is_blacklisted_name = TARGET_PHRASE in normalized_name
+    # 1. Kullanıcının Username'ini al (@ olmadan, küçük harflerle)
+    username = user.username.lower() if user.username else ""
+    
+    is_blacklisted_username = username in BLACKLIST
 
-    # KULLANICI KARALİSTEDEYSE İŞLEME DEVAM ET
-    if is_blacklisted_id or is_blacklisted_name:
+    # KULLANICI ADI KARALİSTEDEYSE İŞLEME DEVAM ET
+    if is_blacklisted_username:
         content = (msg.text or msg.caption or "")
         content_lower = content.lower()
 
@@ -99,13 +92,12 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await msg.delete()
                 
                 # Konsola detaylı log yazdır
-                kullanici_tipi = "ID Karalistesi" if is_blacklisted_id else "İsim Filtresi"
                 yakalanan_sey = []
                 if has_link: yakalanan_sey.append("Link")
                 if has_banned_word: yakalanan_sey.append("Yasaklı Kelime")
                 
-                sebep = f"{kullanici_tipi} -> {' + '.join(yakalanan_sey)}"
-                print(f"✅ REKLAM SİLİNDİ: {user.id} | Sebep: {sebep}")
+                sebep = f"Username Karalistesi -> {' + '.join(yakalanan_sey)}"
+                print(f"✅ REKLAM SİLİNDİ: @{username} | Sebep: {sebep}")
                 
             except Exception as e:
                 print(f"❌ Silme hatası: {e}")
@@ -113,7 +105,7 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # --- 6. KOMUTLAR ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id):
-        await update.message.reply_text("🛡️ Koruma sistemi, Yeni Regex ve Kelime Filtresi aktif!")
+        await update.message.reply_text("🛡️ Koruma sistemi aktif! Saf Username bazlı karaliste devrede.")
 
 # --- 7. ÇALIŞTIRICI ---
 def main():
