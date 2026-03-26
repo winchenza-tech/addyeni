@@ -25,7 +25,7 @@ def keep_alive():
 
 # --- 2. AYARLAR ---
 TELEGRAM_TOKEN = "8637130007:AAEX9jWl5WOs9iQb7oVkyCik6oIkgTpH8tM" 
-ADMIN_IDS = [8416720490, 8382929624, 652932220]
+ADMIN_IDS = [8416720490, 8382929624, 652932220, 7094870780]
 
 # Yasaklı Kelimeler Listesi
 BANNED_WORDS = ["aramıza", "grubumuza", "grubuna", "sohbet", "ortam"]
