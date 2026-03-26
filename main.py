@@ -7,7 +7,7 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 
-# --- 1. WEB SUNUCUSU ---
+# --- 1. WEB SUNUCUSU (7/24 Aktiflik İçin) ---
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -27,7 +27,7 @@ def keep_alive():
 TELEGRAM_TOKEN = "8637130007:AAEX9jWl5WOs9iQb7oVkyCik6oIkgTpH8tM" 
 ADMIN_IDS = [8416720490, 8382929624, 652932220, 7094870780]
 
-# Yasaklı Kelimeler Listesi
+# Yasaklı Kelimeler Listesi (Sadece blacklisttekiler için aranacak)
 BANNED_WORDS = ["aramıza", "grubumuza", "grubuna", "sohbet", "ortam"]
 
 # Özel davet linklerini (+ ve - barındıran) yakalayabilen Regex
@@ -67,13 +67,15 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
     msg = update.effective_message
     user = update.effective_user
     
+    # Mesaj yoksa, kullanıcı yoksa veya mesaj ÖZEL SOHBETTEN (DM) geldiyse işlem yapma
     if not msg or not user or update.effective_chat.type == 'private':
         return
         
+    # Yönetici (Admin) mesaj gönderdiyse asla silme
     if is_admin(user.id):
         return
 
-    # 1. Kullanıcının Username'ini ve ID'sini al (ID'yi stringe çeviriyoruz çünkü JSON key'leri string olur)
+    # 1. Kullanıcının Username'ini ve ID'sini al
     username = user.username.lower() if user.username else ""
     user_id_str = str(user.id)
     
@@ -101,10 +103,10 @@ async def delete_octopus_ads(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if has_banned_word: yakalanan_sey.append("Yasaklı Kelime")
                 
                 sebep = f"Karaliste ({user_id_str}/{username}) -> {' + '.join(yakalanan_sey)}"
-                print(f"✅ REKLAM SİLİNDİ: @{username} | Sebep: {sebep}")
+                print(f"✅ REKLAM SİLİNDİ: {user.first_name} (@{username}) | Sebep: {sebep}")
                 
             except Exception as e:
-                print(f"❌ Silme hatası: {e}")
+                print(f"❌ Silme hatası: {e} - Botun grupta admin yetkisi (Mesaj Silme) olduğundan emin olun.")
 
 # --- 6. KOMUTLAR ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -124,7 +126,7 @@ async def add_blacklist_command(update: Update, context: ContextTypes.DEFAULT_TY
             BLACKLIST[target_user.username.lower()] = f"Username Ban (Ekleyen: {update.effective_user.first_name})"
         
         save_blacklist()
-        await update.message.reply_text(f" karalisteye eklendi (ID: {target_id}).")
+        await update.message.reply_text(f"✅ Kullanıcı karalisteye eklendi (ID: {target_id}).")
         return
 
     # Yanıt verilmemişse, komutun yanına yazılan metni al (Örn: /ekle 123456789 veya /ekle @kullanici)
@@ -198,8 +200,9 @@ def main():
         app.add_handler(CommandHandler("cikar", remove_blacklist_command))
         app.add_handler(CommandHandler("liste", list_blacklist_command))
         
-        # Normal mesaj denetleyici
-        app.add_handler(MessageHandler(filters.ChatType.GROUPS & (~filters.COMMAND), delete_octopus_ads))
+        # DÜZELTME BURADA: Süper grupları da yakalaması için filtreyi genişlettik.
+        # Sadece komut olmayan mesajları alır. DM'leri yukarıdaki fonksiyonda eledik zaten.
+        app.add_handler(MessageHandler(~filters.COMMAND, delete_octopus_ads))
         
         print("🚀 Bot uyanık ve karalistedeki reklamcıları avlamaya hazır.")
         app.run_polling(drop_pending_updates=True) 
